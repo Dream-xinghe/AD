@@ -84,6 +84,7 @@ class NuScenesE2EDataset(NuScenesDataset):
         self.past_steps = past_steps
         self.fut_steps = fut_steps
         self.scene_token = None
+        # lane_infos中包含了车道线的标注信息
         self.lane_infos = self.load_annotations(lane_ann_file) \
             if lane_ann_file else None
         self.eval_mod = eval_mod
@@ -166,6 +167,7 @@ class NuScenesE2EDataset(NuScenesDataset):
             assert False, 'Invalid file_client_args!'
         return data_infos
 
+    #准备训练数据
     def prepare_train_data(self, index):
         """
         Training data preparation.
@@ -181,6 +183,8 @@ class NuScenesE2EDataset(NuScenesDataset):
         """
         data_queue = []
         self.enbale_temporal_aug = False
+        # enbale temporal aug代表是否进行时间增强即加载数据时是否打乱
+        # 默认使用False，即不进行时间增强
         if self.enbale_temporal_aug:
             # temporal aug
             prev_indexs_list = list(range(index-self.queue_length, index))
@@ -190,14 +194,18 @@ class NuScenesE2EDataset(NuScenesDataset):
         else:
             # ensure the first and final frame in same scene
             final_index = index
+            # queue_length代表时间窗口长度
             first_index = index - self.queue_length + 1
+            # 如果首帧在数据集中不存在，则返回None
             if first_index < 0:
                 return None
+            # 如果首尾两帧不在同一场景，则返回None
             if self.data_infos[first_index]['scene_token'] != \
                     self.data_infos[final_index]['scene_token']:
                 return None
             # current timestamp
             input_dict = self.get_data_info(final_index)
+            # prev_indexs_list存储除了当前帧之外的前queue_length-1帧的索引，代表当前帧的前一段需要的序列
             prev_indexs_list = list(reversed(range(first_index, final_index)))
         if input_dict is None:
             return None
@@ -430,13 +438,22 @@ class NuScenesE2EDataset(NuScenesDataset):
         info = self.data_infos[index]
 
         # semantic format
+        # lane_info中包含了车道线的标注信息
         lane_info = self.lane_infos[index] if self.lane_infos else None
         # panoptic format
+        # location中包含了场景的位置信息(城市区域名)
         location = self.nusc.get('log', self.nusc.get(
             'scene', info['scene_token'])['log_token'])['location']
+        # 生成矢量化的地图样本
+        """ 
+        Returns: 代表处理map数据后得到的vectors的数据格式,里面包含了roads_line,lane_line,ped_crossing和segments等信息
+            'pts': pts,
+            'pts_num': pts_num,
+            'type': type
+        """
         vectors = self.vector_map.gen_vectorized_samples(location,
-                                                         info['ego2global_translation'],
-                                                         info['ego2global_rotation'])
+                                                         info['ego2global_translation'],# 平移矩阵的size是(3,)
+                                                         info['ego2global_rotation']) # 旋转矩阵的size是(4,)
         semantic_masks, instance_masks, forward_masks, backward_masks = preprocess_map(vectors,
                                                                                        self.patch_size,
                                                                                        self.canvas_size,
@@ -588,6 +605,7 @@ class NuScenesE2EDataset(NuScenesDataset):
         # generate detection labels for current + future frames
         input_dict['occ_future_ann_infos'] = \
             self.get_future_detection_infos(future_frames)
+        # input_dict中包含了未来帧的检测标注信息
         return input_dict
 
     def get_future_detection_infos(self, future_frames):

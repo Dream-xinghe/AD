@@ -159,7 +159,7 @@ class UniAD(UniADTrack):
         losses = dict()
         len_queue = img.size(1)
         
-
+        # track former,计算得到track的loss和输出
         losses_track, outs_track = self.forward_track_train(img, gt_bboxes_3d, gt_labels_3d, gt_past_traj, gt_past_traj_mask, gt_inds, gt_sdc_bbox, gt_sdc_label,
                                                         l2g_t, l2g_r_mat, img_metas, timestamp)
         losses_track = self.loss_weighted_and_prefixed(losses_track, prefix='track')
