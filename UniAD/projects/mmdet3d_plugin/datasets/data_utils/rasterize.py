@@ -3,7 +3,7 @@ import numpy as np
 from shapely import affinity
 from shapely.geometry import LineString, box
 
-
+# 生成局部地图的多边形区域并且进行旋转
 def get_patch_coord(patch_box, patch_angle=0.0):
     patch_x, patch_y, patch_h, patch_w = patch_box
 
@@ -18,7 +18,7 @@ def get_patch_coord(patch_box, patch_angle=0.0):
 
     return patch
 
-
+# 计算线段的离散方向
 def get_discrete_degree(vec, angle_class=36):
     deg = np.mod(np.degrees(np.arctan2(vec[1], vec[0])), 360)
     deg = (int(deg / (360 / angle_class) + 0.5) % angle_class) + 1
@@ -26,13 +26,16 @@ def get_discrete_degree(vec, angle_class=36):
 
 
 def mask_for_lines(lines, mask, thickness, idx, type='index', angle_class=36):
+    # coords的shape是(N, 2),代表线段上的点的像素坐标
     coords = np.asarray(list(lines.coords), np.int32)
     coords = coords.reshape((-1, 2))
     if len(coords) < 2:
         return mask, idx
+    # 进行反向
     if type == 'backward':
         coords = np.flip(coords, 0)
 
+    # idx的值会决定线段的颜色
     if type == 'index':
         cv2.polylines(mask, [coords], False, color=idx, thickness=thickness)
         idx += 1
@@ -46,13 +49,17 @@ def mask_for_lines(lines, mask, thickness, idx, type='index', angle_class=36):
 def line_geom_to_mask(layer_geom, confidence_levels, local_box, canvas_size, thickness, idx, type='index', angle_class=36):
     patch_x, patch_y, patch_h, patch_w = local_box
 
+    # 这里的patch返回的是一个shapely的box对象
     patch = get_patch_coord(local_box)
 
     canvas_h = canvas_size[0]
     canvas_w = canvas_size[1]
+    # 计算缩放比例，即从实际地图坐标到像素坐标的比例
     scale_height = canvas_h / patch_h
     scale_width = canvas_w / patch_w
 
+    # 计算平移量，将地图坐标系的原点平移到像素坐标系的中心
+    # 转换到以Patch左下角为原点的的临时坐标系
     trans_x = -patch_x + patch_w / 2.0
     trans_y = -patch_y + patch_h / 2.0
 
@@ -95,8 +102,10 @@ def preprocess_map(vectors, patch_size, canvas_size, num_classes, thickness, ang
     for i in range(num_classes):
         vector_num_list[i] = []
 
+    # 对于每一个vectors中，只保留pts_num>=2的线段
     for vector in vectors:
         if vector['pts_num'] >= 2:
+            # 将Map中获取的矢量线段转换为Shapely的LineString对象0，1，2代表divider, crosswalk, contours
             vector_num_list[vector['type']].append(
                 LineString(vector['pts'][:vector['pts_num']]))
 
@@ -108,6 +117,7 @@ def preprocess_map(vectors, patch_size, canvas_size, num_classes, thickness, ang
     forward_masks = []
     backward_masks = []
     for i in range(num_classes):
+        # idx在经过处理之后会变大，保证每一类的实例id不重复
         map_mask, idx = line_geom_to_mask(
             vector_num_list[i], confidence_levels, local_box, canvas_size, thickness, idx)
         instance_masks.append(map_mask)
@@ -121,6 +131,7 @@ def preprocess_map(vectors, patch_size, canvas_size, num_classes, thickness, ang
             vector_num_list[i], confidence_levels, local_box, canvas_size, thickness, 1, type='backward', angle_class=angle_class)
         backward_masks.append(backward_mask)
 
+    # 经过stack之后，filter_masks的shape是(C, H, W)，H和W是canvas_size
     filter_masks = np.stack(filter_masks)
     instance_masks = np.stack(instance_masks)
     forward_masks = np.stack(forward_masks)

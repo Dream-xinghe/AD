@@ -454,12 +454,19 @@ class NuScenesE2EDataset(NuScenesDataset):
         vectors = self.vector_map.gen_vectorized_samples(location,
                                                          info['ego2global_translation'],# 平移矩阵的size是(3,)
                                                          info['ego2global_rotation']) # 旋转矩阵的size是(4,)
+        # 将map中的vectors处理成BEV掩码形式
+        # semantic_masks: 形状 (C, H, W) 的布尔图，逐类的语义存在图
+        # instance_masks: 形状 (C, H, W) 的实例分割图，线被画成粗细 thickness 的像素，并赋唯一实例ID（每类内唯一）
+        # forward_masks: 形状 (H, W) 的整型图，像素为按正向绘制时的离散方向标签（1..angle_class）
+        # backward_masks: 形状 (H, W) 的整型图，像素为按反向绘制时的离散方向标签（1..angle_class）
         semantic_masks, instance_masks, forward_masks, backward_masks = preprocess_map(vectors,
-                                                                                       self.patch_size,
-                                                                                       self.canvas_size,
-                                                                                       self.map_num_classes,
+                                                                                       self.patch_size, # (102.4, 102.4)
+                                                                                       self.canvas_size, # (200, 200)
+                                                                                       self.map_num_classes, # 3类: divider, contours, crosswalk
                                                                                        self.thickness,
                                                                                        self.angle_class)
+        # 将instance_masks转换成gt_labels, gt_bboxes, gt_masks的形式
+        # rot的目的是将BEV栅格从笛卡尔坐标系（x向右，y向上）转换到图像坐标系（x向右，y向下）
         instance_masks = np.rot90(instance_masks, k=-1, axes=(1, 2))
         instance_masks = torch.tensor(instance_masks.copy())
         gt_labels = []
@@ -469,6 +476,7 @@ class NuScenesE2EDataset(NuScenesDataset):
             for i in np.unique(instance_masks[cls]):
                 if i == 0:
                     continue
+                # gt_mask的shape是(H, W)，表示当前类别cls中实例id为i的掩码
                 gt_mask = (instance_masks[cls] == i).to(torch.uint8)
                 ys, xs = np.where(gt_mask)
                 gt_bbox = [min(xs), min(ys), max(xs), max(ys)]
